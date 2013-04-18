@@ -1,11 +1,8 @@
+cxx = clang++
 cxxflags = -Wall -std=c++11 -stdlib=libc++
 linkflags = 
 
-rule clang
-  command = clang++ $cxxflags -c $in -o $out
 rule link
-  command = clang++ $cxxflags $linkflags -o $out $in
+  command = $cxx $cxxflags $linkflags -o $out $in
 
-build main.o: clang main.cpp
-
-build tpool: link main.o
+build tpool: link main.cpp
