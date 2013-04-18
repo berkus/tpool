@@ -9,13 +9,15 @@
 #include <memory>
 #include <atomic>
 
-struct abstract_task {
+struct abstract_task
+{
     virtual void execute() = 0;
-    virtual ~abstract_task(){};
+    virtual ~abstract_task() {};
 };
 
 template<typename TResult>
-struct task_impl : public abstract_task {
+struct task_impl : public abstract_task
+{
     typedef std::packaged_task<TResult()> task_type;
     task_type task_;
 
@@ -23,7 +25,7 @@ struct task_impl : public abstract_task {
         task_ = std::move(t);
     }
 
-    void execute(){
+    void execute() {
         task_();
     }
 };
@@ -54,6 +56,7 @@ public:
             thread = std::thread(&thread_pool::run, this);
         }
     }
+
     ~thread_pool()
     {
         // notify about death
@@ -82,14 +85,17 @@ public:
     }
 
 private:
-    void run(){
+    void run()
+    {
         // TODO: add exit condition
-        while (!terminate_) {
+        while (!terminate_)
+        {
             std::unique_ptr<abstract_task> task;
             {
                 std::lock_guard<std::mutex> _(lock_tasks_);
-                if (tasks_.empty())
+                if (tasks_.empty()) {
                     continue;
+                }
                 task = std::move(tasks_.front());
                 tasks_.pop();
             }
@@ -98,7 +104,8 @@ private:
     }
 };
 
-int main() {
+int main()
+{
     thread_pool pool;
     auto res = pool.execute_async([](){return 42;});
     auto res2 = pool.execute_async([](){std::cout << "Hello world" << std::endl; });
