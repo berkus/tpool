@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <memory>
 #include <atomic>
+#include <condition_variable>
 
 struct abstract_task
 {
@@ -41,17 +42,23 @@ struct task_impl : public abstract_task
 // 8. add blows and whistles
 
 class thread_pool
-{
+{ 
     std::queue<std::unique_ptr<abstract_task>> tasks_;
     std::vector<std::thread> threads_;
     std::mutex lock_tasks_;
-    std::atomic<bool> terminate_;
+    
+    // for suspending threads which do not have anything to do
+    std::atomic<bool> terminate_{false};
+    std::atomic<size_t> execute_task_{size_t(0)};
+
+    std::mutex condition_mutex_;
+    std::condition_variable condition_;
 
 public:
     thread_pool()
         : threads_(std::thread::hardware_concurrency()*2)
-        , terminate_(false)
     {
+        std::clog << "HW concurrency: " << std::thread::hardware_concurrency() << std::endl;
         for (auto& thread : threads_) {
             thread = std::thread(&thread_pool::run, this);
         }
@@ -59,8 +66,10 @@ public:
 
     ~thread_pool()
     {
+        std::clog << "Thread pool dead, joining runners" << std::endl;
         // notify about death
         terminate_ = true;
+        condition_.notify_all();
         for (auto& thread : threads_) {
             thread.join();
         }
@@ -79,6 +88,9 @@ public:
             std::unique_ptr<abstract_task> ptask(new task_impl<return_type>(std::move(task)));
             std::lock_guard<std::mutex> _(lock_tasks_);
             tasks_.push(std::move(ptask));
+            ++execute_task_;
+            condition_.notify_one();
+            std::clog << "Thread " << std::this_thread::get_id() << " added task " << ptask.get() << " tasks to exec " << execute_task_ << std::endl;
         }
 
         return result;
@@ -87,19 +99,33 @@ public:
 private:
     void run()
     {
-        // TODO: add exit condition
-        while (!terminate_)
+        std::cout << "Started thread runner id " << std::this_thread::get_id();
+        while (true)
         {
-            std::unique_ptr<abstract_task> task;
+            std::unique_lock<std::mutex> lock(condition_mutex_);
+            condition_.wait(lock, [this]()
             {
-                std::lock_guard<std::mutex> _(lock_tasks_);
-                if (tasks_.empty()) {
-                    continue;
-                }
-                task = std::move(tasks_.front());
-                tasks_.pop();
+                return terminate_ || execute_task_ != 0;
+            });
+
+            if (terminate_) {
+                std::clog << "Runner " << std::this_thread::get_id() << " finished, bye-bye!" << std::endl;
+                return;
             }
-            task->execute();
+
+            while(true) {
+                std::unique_ptr<abstract_task> task;
+                {
+                    std::lock_guard<std::mutex> _(lock_tasks_);
+                    if (execute_task_ == 0) break;
+ 
+                    --execute_task_;
+                    task = std::move(tasks_.front());
+                    tasks_.pop();
+                }
+                std::clog << "Runner " << std::this_thread::get_id() << " grabbed task " << task.get() << std::endl;
+                task->execute();
+            }
         }
     }
 };
@@ -107,10 +133,17 @@ private:
 int main()
 {
     thread_pool pool;
-    auto res = pool.execute_async([](){return 42;});
-    auto res2 = pool.execute_async([](){std::cout << "Hello world" << std::endl; });
-    std::cout << res.get();
-    res2.get();
+    for(size_t index = 0; index < 100; ++index)
+    {   
+        pool.execute_async([index](){
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::cout << std::this_thread::get_id() << index << std::endl; });
+        pool.execute_async([](){std::cout << std::this_thread::get_id() << "Hello world" << std::endl; });
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+    //    std::cout << res.get();
+    //res2.get();
 
     return 0;
 }
