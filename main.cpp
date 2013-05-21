@@ -66,13 +66,13 @@ public:
         }
     }
 
-    template<typename TFunc>
-    std::future<typename std::result_of<TFunc()>::type> execute_async(TFunc func)
+    template<typename TFunc, typename ...TArgs>
+    std::future<typename std::result_of<TFunc(TArgs...)>::type> execute_async(TFunc func, TArgs&&... args)
     {
-        typedef typename std::result_of<TFunc()>::type return_type;
+        typedef typename std::result_of<TFunc(TArgs...)>::type return_type;
         typedef std::packaged_task<return_type()> task_type;
         typedef std::future<return_type> future_type;
-        task_type task(func);
+        task_type task([=](){ return func(std::forward<TArgs>(args)...); });
         future_type result = task.get_future();
 
         {
@@ -96,6 +96,7 @@ private:
                 if (tasks_.empty()) {
                     continue;
                 }
+                std::cout << "Task taken by thread: " << std::this_thread::get_id() << std::endl; 
                 task = std::move(tasks_.front());
                 tasks_.pop();
             }
@@ -104,13 +105,57 @@ private:
     }
 };
 
+int sum(int x, int y) {
+    return x + y;
+}
+
+void fuck(int x, int y) {
+    std::cout << x << " fuck " << y << std::endl;
+}
+
+class X {
+public:
+    void suck(){
+        std::cout << "suck" << std::endl;
+    }
+};
+
+void stupid_sort(std::vector<int>& array){
+    for (size_t index = 0; index < array.size(); ++index)
+        for (size_t index2 = 1; index2 < array.size(); ++index2) {
+            if (array[index2] < array[index2-1]) {
+                int temp = array[index2];
+                array[index2] = array[index2-1];
+                array[index2-1] = temp;
+            }
+        }
+}
+
 int main()
 {
     thread_pool pool;
-    auto res = pool.execute_async([](){return 42;});
-    auto res2 = pool.execute_async([](){std::cout << "Hello world" << std::endl; });
-    std::cout << res.get();
-    res2.get();
+    // auto res = pool.execute_async([](){return 42;});
+    // auto res2 = pool.execute_async([](){std::cout << "Hello world" << std::endl; });
+    // auto res3 = pool.execute_async(sum, 2, 3);
+    // auto res4 = pool.execute_async(fuck, 2, 3);
+    // TODO: implement this
+    // X x;
+    // auto res5 = pool.execute_async(&X::suck, &x);
+    // res4.get();
+    // std::cout << res3.get();
+    // std::cout << res.get();
+    // res2.get();
+    // 
+    std::vector<int> super_array(100000000);
+    std::vector<int>& arr = super_array;
+    std::vector<std::future<void>> futures;
+    futures.push_back(pool.execute_async(stupid_sort, super_array));//,
+    futures.push_back(pool.execute_async(stupid_sort, super_array));
+    futures.push_back(pool.execute_async(stupid_sort, super_array));
+    futures.push_back(pool.execute_async(stupid_sort, super_array));
+
+    for (auto& fut: futures) fut.get();
+    // };
 
     return 0;
 }
